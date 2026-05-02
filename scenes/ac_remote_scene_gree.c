@@ -70,14 +70,15 @@ bool ac_remote_store_settings(ACRemoteAppSettings* app_state) {
 
     bool success = false;
     do {
-        if(!flipper_format_file_open_always(ff, AC_REMOTE_APP_SETTINGS)) break;
+        if(!flipper_format_file_open_new(ff, AC_REMOTE_APP_SETTINGS)) break;
         if(!flipper_format_write_header_cstr(ff, "AC Remote", 1)) break;
         if(!flipper_format_write_comment_cstr(ff, "")) break;
         if(!flipper_format_write_uint32(ff, "Mode", &app_state->mode, 1)) break;
         if(!flipper_format_write_uint32(ff, "Temperature", &app_state->temperature, 1)) break;
         if(!flipper_format_write_uint32(ff, "Fan", &app_state->fan, 1)) break;
         if(!flipper_format_write_uint32(ff, "Power", &app_state->power, 1)) break;
-        if(!flipper_format_write_uint32(ff, "Swing", &app_state->swing, 1)) success = true;
+        if(!flipper_format_write_uint32(ff, "Swing", &app_state->swing, 1)) break;
+        success = true;
     } while(false);
     furi_record_close(RECORD_STORAGE);
     flipper_format_free(ff);
@@ -143,13 +144,14 @@ void ac_remote_scene_gree_on_enter(void* context) {
     AC_RemoteApp* ac_remote = context;
     ACRemotePanel* ac_remote_panel = ac_remote->ac_remote_panel;
 
-    if(!ac_remote_load_settings(&ac_remote->app_state)) {
-        ac_remote->app_state.power = 0;
-        ac_remote->app_state.mode = HvacGreeModeCool;
-        ac_remote->app_state.fan = HvacGreeFanAuto;
-        ac_remote->app_state.temperature = HVAC_GREE_TEMPERATURE_DEFAULT;
-        ac_remote->app_state.swing = 0;
-    }
+    // Initialize to defaults before loading, in case of partial file corruption
+    ac_remote->app_state.power = 0;
+    ac_remote->app_state.mode = HvacGreeModeCool;
+    ac_remote->app_state.fan = HvacGreeFanAuto;
+    ac_remote->app_state.temperature = HVAC_GREE_TEMPERATURE_DEFAULT;
+    ac_remote->app_state.swing = 0;
+
+    ac_remote_load_settings(&ac_remote->app_state);
 
     view_stack_add_view(ac_remote->view_stack, ac_remote_panel_get_view(ac_remote_panel));
     ac_remote_panel_reserve(ac_remote_panel, 3, 4);
