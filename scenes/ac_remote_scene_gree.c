@@ -53,6 +53,7 @@ bool ac_remote_load_settings(ACRemoteAppSettings* app_state) {
         if(!flipper_format_read_uint32(ff, "Fan", &app_state->fan, 1)) break;
         if(app_state->fan > HvacGreeFanAuto) break;
         if(!flipper_format_read_uint32(ff, "Power", &app_state->power, 1)) break;
+        if(app_state->power > 1) break;
         if(!flipper_format_read_uint32(ff, "Swing", &app_state->swing, 1)) break;
         if(app_state->swing > 1) break;
         success = true;
