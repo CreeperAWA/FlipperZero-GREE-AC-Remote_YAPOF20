@@ -42,19 +42,7 @@ static uint8_t gree_encode_temperature(HvacGreeMode mode, HvacGreeTemperature te
         temp = HVAC_GREE_TEMPERATURE_MAX;
     }
 
-    switch(mode) {
-    case HvacGreeModeHeat:
-        return (uint8_t)(temp - 16);
-    case HvacGreeModeCool:
-    case HvacGreeModeDry:
-        if(temp % 2 == 0) {
-            return (uint8_t)((temp - 18) * 2 + 1);
-        } else {
-            return (uint8_t)((temp - 17) * 2);
-        }
-    default:
-        return 0x09;
-    }
+    return (uint8_t)(temp - 16);
 }
 
 HvacGreePacket hvac_gree_create_packet(void) {
