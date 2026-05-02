@@ -1,1 +1,1 @@
-ADD_SCENE(ac_remote, midea, Midea)
+ADD_SCENE(ac_remote, gree, Gree)
