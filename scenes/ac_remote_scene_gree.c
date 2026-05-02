@@ -40,22 +40,24 @@ bool ac_remote_load_settings(ACRemoteAppSettings* app_state) {
     FlipperFormat* ff = flipper_format_buffered_file_alloc(storage);
     FuriString* header = furi_string_alloc();
 
+    ACRemoteAppSettings temp_state;
     uint32_t version = 0;
     bool success = false;
     do {
         if(!flipper_format_buffered_file_open_existing(ff, AC_REMOTE_APP_SETTINGS)) break;
         if(!flipper_format_read_header(ff, header, &version)) break;
         if(!furi_string_equal(header, "AC Remote") || (version != 1)) break;
-        if(!flipper_format_read_uint32(ff, "Mode", &app_state->mode, 1)) break;
-        if(app_state->mode > HvacGreeModeAuto) break;
-        if(!flipper_format_read_uint32(ff, "Temperature", &app_state->temperature, 1)) break;
-        if(app_state->temperature > HVAC_GREE_TEMPERATURE_MAX) break;
-        if(!flipper_format_read_uint32(ff, "Fan", &app_state->fan, 1)) break;
-        if(app_state->fan > HvacGreeFanAuto) break;
-        if(!flipper_format_read_uint32(ff, "Power", &app_state->power, 1)) break;
-        if(app_state->power > 1) break;
-        if(!flipper_format_read_uint32(ff, "Swing", &app_state->swing, 1)) break;
-        if(app_state->swing > 1) break;
+        if(!flipper_format_read_uint32(ff, "Mode", &temp_state.mode, 1)) break;
+        if(temp_state.mode > HvacGreeModeAuto) break;
+        if(!flipper_format_read_uint32(ff, "Temperature", &temp_state.temperature, 1)) break;
+        if(temp_state.temperature > HVAC_GREE_TEMPERATURE_MAX) break;
+        if(!flipper_format_read_uint32(ff, "Fan", &temp_state.fan, 1)) break;
+        if(temp_state.fan > HvacGreeFanAuto) break;
+        if(!flipper_format_read_uint32(ff, "Power", &temp_state.power, 1)) break;
+        if(temp_state.power > 1) break;
+        if(!flipper_format_read_uint32(ff, "Swing", &temp_state.swing, 1)) break;
+        if(temp_state.swing > 1) break;
+        *app_state = temp_state;
         success = true;
     } while(false);
     furi_record_close(RECORD_STORAGE);
@@ -70,7 +72,7 @@ bool ac_remote_store_settings(ACRemoteAppSettings* app_state) {
 
     bool success = false;
     do {
-        if(!flipper_format_file_open_new(ff, AC_REMOTE_APP_SETTINGS)) break;
+        if(!flipper_format_file_open_always(ff, AC_REMOTE_APP_SETTINGS)) break;
         if(!flipper_format_write_header_cstr(ff, "AC Remote", 1)) break;
         if(!flipper_format_write_comment_cstr(ff, "")) break;
         if(!flipper_format_write_uint32(ff, "Mode", &app_state->mode, 1)) break;

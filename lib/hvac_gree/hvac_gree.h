@@ -42,7 +42,7 @@ typedef uint8_t HvacGreeTemperature;
 #define HVAC_GREE_REPEAT_GAP 40000
 
 #define HVAC_GREE_TRANSMIT_TIMINGS_PER_FRAME \
-    (2 + 2 * HVAC_GREE_PACKET_SIZE * 8 + 1)
+    (2 + 2 * HVAC_GREE_PACKET_SIZE * 8 + 2)
 
 #define HVAC_GREE_TRANSMIT_REPEATS_DEFAULT 2
 
