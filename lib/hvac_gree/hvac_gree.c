@@ -1,25 +1,38 @@
 #include "hvac_gree.h"
 
 /*
- * GREE AC IR Protocol - based on captured data from code.ir
+ * GREE AC IR Protocol - verified against captured data from code.ir
  *
  * Packet structure (8 bytes):
- *   Byte 0: Mode + Power + Fan + Swing
+ *   Byte 0: Mode + Fan + Swing
  *   Byte 1: Temperature
  *   Byte 2: 0x20 (constant)
  *   Byte 3: 0x50 (constant)
  *
  * Byte 0 layout:
- *   Bits 0-3: Base mode value (Cool=0x09, Heat=0x0C, Auto=0x08)
- *   Bit 4:    Power on (1=on, 0=off)
- *   Bit 5:    Swing (1=on)
- *   Bit 6:    Fan speed 2 (1=on)
+ *   Bits 0-3: Base mode value (Cool/Dry/Fan=0x09, Heat=0x0C, Auto=0x08)
+ *   Bit 4:    UNUSED (always 0 in captured data)
+ *   Bit 5:    Fan speed 2 (1=on, used for Fan2)
+ *   Bit 6:    Swing (1=on)
+ *   Bit 7:    UNUSED
  *
  * Byte 1 layout:
  *   0x09: Auto mode / Power off
- *   Other: Temperature encoding
- *     Heating:  (temp - 16)
- *     Cooling:  ((temp - 18) * 2 + 1) for even temps
+ *   Other: Temperature value = (temp - 16)
+ *     Both Heating and Cooling use the same encoding: (temp - 16)
+ *     Example: 20C -> 0x04, 18C -> 0x02
+ *
+ * Power on/off:
+ *   Power ON: The packet with mode/temp/fan settings IS the power-on command
+ *   Power OFF: Byte0=0x00, Byte1=0x09 (clears mode bits, keeps constants)
+ *   Note: No power bit is needed - verified against real captured data
+ *
+ * Timing parameters (verified from code.ir):
+ *   Header: 9000us mark + 4500us space
+ *   Bit 0: 620us mark + 620us space
+ *   Bit 1: 620us mark + 1660us space
+ *   Frame gap: 20000us between two frames
+ *   Repeat gap: 40000us after second frame
  */
 
 static const uint8_t gree_mode_base[] = {
@@ -70,9 +83,11 @@ void hvac_gree_set_power(HvacGreePacket packet, bool on) {
     furi_assert(packet);
 
     if(on) {
-        packet[0] |= 0x10;
+        // Verified against captured data: power-on commands do NOT set bit 4
+        // The packet with mode/temp/fan settings IS the power-on command
+        // No additional power bit needed
     } else {
-        packet[0] &= ~0x1F;
+        packet[0] &= ~0x0F;
         packet[1] = 0x09;
     }
 }
@@ -81,11 +96,10 @@ void hvac_gree_set_mode(HvacGreePacket packet, HvacGreeMode mode) {
     furi_assert(packet);
 
     uint8_t base = gree_mode_base[mode];
-    uint8_t power = packet[0] & 0x10;
-    uint8_t fan = packet[0] & 0x30;
+    uint8_t fan = packet[0] & 0x20;
     uint8_t swing = packet[0] & 0x40;
 
-    packet[0] = base | power | fan | swing;
+    packet[0] = base | fan | swing;
     packet[1] = gree_encode_temperature(mode, HVAC_GREE_TEMPERATURE_DEFAULT);
 }
 
@@ -111,18 +125,14 @@ void hvac_gree_set_temperature(HvacGreePacket packet, HvacGreeTemperature temper
 void hvac_gree_set_fan(HvacGreePacket packet, HvacGreeFan fan) {
     furi_assert(packet);
 
-    packet[0] &= ~0x30;
+    packet[0] &= ~0x20;
     switch(fan) {
-    case HvacGreeFan1:
-        packet[0] |= 0x10;
-        break;
     case HvacGreeFan2:
         packet[0] |= 0x20;
         break;
-    case HvacGreeFan3:
-        packet[0] |= 0x30;
-        break;
     case HvacGreeFanAuto:
+    case HvacGreeFan1:
+    case HvacGreeFan3:
     default:
         break;
     }
