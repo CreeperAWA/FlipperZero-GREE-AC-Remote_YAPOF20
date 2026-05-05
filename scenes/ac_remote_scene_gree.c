@@ -52,7 +52,7 @@ bool ac_remote_load_settings(ACRemoteAppSettings* app_state) {
         if(!flipper_format_read_uint32(ff, "Temperature", &temp_state.temperature, 1)) break;
         if(temp_state.temperature > HVAC_GREE_TEMPERATURE_MAX) break;
         if(!flipper_format_read_uint32(ff, "Fan", &temp_state.fan, 1)) break;
-        if(temp_state.fan > HvacGreeFanAuto) break;
+        if(temp_state.fan > HvacGreeFan3) break;
         if(!flipper_format_read_uint32(ff, "Power", &temp_state.power, 1)) break;
         if(temp_state.power > 1) break;
         if(!flipper_format_read_uint32(ff, "Swing", &temp_state.swing, 1)) break;
@@ -348,8 +348,8 @@ bool ac_remote_scene_gree_on_event(void* context, SceneManagerEvent event) {
             }
 
             ac_remote->app_state.fan++;
-            if(ac_remote->app_state.fan > HvacGreeFanAuto) {
-                ac_remote->app_state.fan = HvacGreeFan1;
+            if(ac_remote->app_state.fan > HvacGreeFan3) {
+                ac_remote->app_state.fan = HvacGreeFanAuto;
             }
 
             ac_remote_panel_item_set_icons(
