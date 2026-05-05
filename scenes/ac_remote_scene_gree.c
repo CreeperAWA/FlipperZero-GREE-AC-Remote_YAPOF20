@@ -33,6 +33,11 @@ const Icon* fan[4][2] = {
     [HvacGreeFanAuto] = {&I_fan_speed_auto_19x20, &I_fan_speed_auto_hover_19x20},
 };
 
+const Icon* swing[2][2] = {
+    [0] = {&I_swing_19x20, &I_swing_hover_19x20},
+    [1] = {&I_swing_19x20, &I_swing_hover_19x20},
+};
+
 char buffer[4] = {0};
 
 bool ac_remote_load_settings(ACRemoteAppSettings* app_state) {
@@ -401,6 +406,11 @@ bool ac_remote_scene_gree_on_event(void* context, SceneManagerEvent event) {
             }
 
             ac_remote->app_state.swing = ac_remote->app_state.swing ? 0 : 1;
+            ac_remote_panel_item_set_icons(
+                ac_remote_panel,
+                button_swing,
+                swing[ac_remote->app_state.swing][0],
+                swing[ac_remote->app_state.swing][1]);
             break;
 
         case button_turbo:
