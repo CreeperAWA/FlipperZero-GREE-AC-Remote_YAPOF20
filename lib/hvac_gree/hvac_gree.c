@@ -11,8 +11,11 @@
  *
  * Byte 0 layout:
  *   Bits 0-3: Base mode value (Cool/Dry/Fan=0x09, Heat=0x0C, Auto=0x08)
- *   Bit 4:    UNUSED (always 0 in captured data)
- *   Bit 5:    Fan speed 2 (1=on, used for Fan2)
+ *   Bits 4-5: Fan speed (2 bits)
+ *               00 (0x00): Auto
+ *               01 (0x10): Fan speed 1
+ *               10 (0x20): Fan speed 2
+ *               11 (0x30): Fan speed 3
  *   Bit 6:    Swing (1=on)
  *   Bit 7:    UNUSED
  *
@@ -125,15 +128,30 @@ void hvac_gree_set_temperature(HvacGreePacket packet, HvacGreeTemperature temper
 void hvac_gree_set_fan(HvacGreePacket packet, HvacGreeFan fan) {
     furi_assert(packet);
 
-    packet[0] &= ~0x20;
+    // Clear fan speed bits (Bit4 and Bit5, values 0x10 and 0x20)
+    // Fan speed is encoded in 2 bits:
+    //   00 (0x00): Auto
+    //   01 (0x10): Fan speed 1
+    //   10 (0x20): Fan speed 2
+    //   11 (0x30): Fan speed 3
+    packet[0] &= ~0x30;
+
     switch(fan) {
+    case HvacGreeFan1:
+        // Fan speed 1: set Bit4 only (0x10)
+        packet[0] |= 0x10;
+        break;
     case HvacGreeFan2:
+        // Fan speed 2: set Bit5 only (0x20)
         packet[0] |= 0x20;
         break;
-    case HvacGreeFanAuto:
-    case HvacGreeFan1:
     case HvacGreeFan3:
+        // Fan speed 3: set both Bit4 and Bit5 (0x30)
+        packet[0] |= 0x30;
+        break;
+    case HvacGreeFanAuto:
     default:
+        // Auto: both bits cleared (0x00)
         break;
     }
 }
