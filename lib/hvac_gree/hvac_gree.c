@@ -99,11 +99,12 @@ void hvac_gree_set_mode(HvacGreePacket packet, HvacGreeMode mode) {
     furi_assert(packet);
 
     uint8_t base = gree_mode_base[mode];
-    uint8_t fan = packet[0] & 0x20;
+    uint8_t fan = packet[0] & 0x30;
     uint8_t swing = packet[0] & 0x40;
+    uint8_t current_temp = packet[1];
 
     packet[0] = base | fan | swing;
-    packet[1] = gree_encode_temperature(mode, HVAC_GREE_TEMPERATURE_DEFAULT);
+    packet[1] = current_temp;
 }
 
 void hvac_gree_set_temperature(HvacGreePacket packet, HvacGreeTemperature temperature) {
