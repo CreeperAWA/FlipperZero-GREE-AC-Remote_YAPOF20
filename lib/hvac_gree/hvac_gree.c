@@ -214,15 +214,29 @@ static void hvac_gree_send_bits(uint32_t* timings, size_t* idx, const uint8_t* d
     }
 }
 
+static void hvac_gree_send_padding_bits(uint32_t* timings, size_t* idx) {
+    // Frame 1 has 3 extra padding bits: [0, 1, 0] = 0x02
+    uint8_t padding = HVAC_GREE_FRAME1_PADDING_VALUE;
+    for(uint8_t bit = 0; bit < HVAC_GREE_FRAME1_PADDING_BITS; bit++) {
+        timings[(*idx)++] = HVAC_GREE_BIT_MARK;
+        if(padding & (1 << bit)) {
+            timings[(*idx)++] = HVAC_GREE_ONE_SPACE;
+        } else {
+            timings[(*idx)++] = HVAC_GREE_ZERO_SPACE;
+        }
+    }
+}
+
 static void hvac_gree_send_raw(const HvacGreePacket packet) {
     /*
      * GREE AC IR signal structure (verified from code.ir):
-     * Frame 1: Header + 4 bytes + End mark + 20ms gap
+     * Frame 1: Header + 4 bytes + 3 padding bits + End mark + 20ms gap
      * Frame 2: 4 bytes (no header!) + End mark + 40ms gap
      * 
      * This is sent twice (repeat), with the second pair separated by timing
+     * Note: The last repeat does NOT end with a repeat gap
      */
-    size_t timings_len = HVAC_GREE_TRANSMIT_TIMINGS_PER_FRAME * 2;
+    size_t timings_len = HVAC_GREE_TRANSMIT_TIMINGS_PER_FRAME;
     uint32_t* timings = malloc(sizeof(uint32_t) * timings_len);
     furi_assert(timings);
 
@@ -230,17 +244,22 @@ static void hvac_gree_send_raw(const HvacGreePacket packet) {
 
     // Send two identical transmissions (repeat)
     for(int repeat = 0; repeat < 2; repeat++) {
-        // Frame 1: Header + first 4 bytes + End mark + 20ms gap
+        // Frame 1: Header + first 4 bytes + 3 padding bits + End mark + 20ms gap
         timings[idx++] = HVAC_GREE_HDR_MARK;
         timings[idx++] = HVAC_GREE_HDR_SPACE;
         hvac_gree_send_bits(timings, &idx, packet, 4);
+        hvac_gree_send_padding_bits(timings, &idx);
         timings[idx++] = HVAC_GREE_END_MARK;
         timings[idx++] = HVAC_GREE_FRAME_GAP;
 
-        // Frame 2: next 4 bytes (NO header) + End mark + 40ms gap
+        // Frame 2: next 4 bytes (NO header) + End mark + 40ms gap (except for last repeat)
         hvac_gree_send_bits(timings, &idx, packet + 4, 4);
         timings[idx++] = HVAC_GREE_END_MARK;
-        timings[idx++] = HVAC_GREE_REPEAT_GAP;
+        
+        // Only add repeat gap if this is not the last repeat
+        if(repeat < 1) {
+            timings[idx++] = HVAC_GREE_REPEAT_GAP;
+        }
     }
 
     infrared_send_raw_ext(

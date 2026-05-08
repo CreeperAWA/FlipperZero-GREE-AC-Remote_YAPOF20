@@ -45,15 +45,30 @@ typedef uint8_t HvacGreeTemperature;
  * GREE AC IR Protocol Structure (verified from code.ir):
  * 
  * Each transmission consists of 2 frames:
- * Frame 1: Header (9000+4500us) + 4 bytes + End mark + 20ms gap
+ * Frame 1: Header (9000+4500us) + 35 bits (4 bytes + 3 padding bits) + End mark + 20ms gap
  * Frame 2: 4 bytes (NO header!) + End mark + 40ms gap
  * 
+ * The extra 3 bits in Frame 1 are always [0, 1, 0] (0x02)
  * This entire sequence is sent twice (repeat).
- * Total: 132 timings per transmission pair (repeat)
+ * The second repeat does NOT end with a repeat gap.
+ * Total: 279 timings (140 for first repeat + 139 for second repeat)
  */
 
-#define HVAC_GREE_TRANSMIT_TIMINGS_PER_FRAME \
-    (2 + 2 * 4 * 8 + 1 + 1 + 2 * 4 * 8 + 1 + 1)
+/* Single repeat structure:
+ * Frame 1: 2 (header) + 35*2 (bits) + 1 (end) + 1 (gap) = 74
+ * Frame 2: 32*2 (bits) + 1 (end) + 1 (gap) = 66
+ * Total per repeat: 74 + 66 = 140
+ * 
+ * Full transmission (2 repeats):
+ * First repeat: 140 timings (includes repeat gap)
+ * Second repeat: 139 timings (no repeat gap at end)
+ * Total: 279 timings
+ */
+#define HVAC_GREE_TRANSMIT_TIMINGS_PER_FRAME (140 + 139)
+
+/* Frame 1 padding bits - always [0, 1, 0] */
+#define HVAC_GREE_FRAME1_PADDING_BITS 3
+#define HVAC_GREE_FRAME1_PADDING_VALUE 0x02
 
 #define HVAC_GREE_TRANSMIT_REPEATS_DEFAULT 1
 
