@@ -70,9 +70,9 @@ HvacGreePacket hvac_gree_create_packet(void) {
     packet[2] = 0x20;
     packet[3] = 0x50;
     packet[4] = 0x00;
-    packet[5] = 0x00;
+    packet[5] = 0x40;
     packet[6] = 0x00;
-    packet[7] = 0x00;
+    packet[7] = 0x70;
 
     return packet;
 }
@@ -107,6 +107,21 @@ void hvac_gree_set_mode(HvacGreePacket packet, HvacGreeMode mode) {
     packet[1] = current_temp;
 }
 
+static uint8_t gree_encode_byte7(HvacGreeMode mode, HvacGreeTemperature temp) {
+    switch(mode) {
+    case HvacGreeModeHeat:
+        return 0xC8 + (temp - 18) * 0x10;
+    case HvacGreeModeCool:
+    case HvacGreeModeDry:
+    case HvacGreeModeFan:
+        return 0x90 + (temp - 18) * 0x10;
+    case HvacGreeModeAuto:
+        return 0xF0;
+    default:
+        return 0x70;
+    }
+}
+
 void hvac_gree_set_temperature(HvacGreePacket packet, HvacGreeTemperature temperature) {
     furi_assert(packet);
 
@@ -124,6 +139,7 @@ void hvac_gree_set_temperature(HvacGreePacket packet, HvacGreeTemperature temper
     }
 
     packet[1] = gree_encode_temperature(mode_enum, temperature);
+    packet[7] = gree_encode_byte7(mode_enum, temperature);
 }
 
 void hvac_gree_set_fan(HvacGreePacket packet, HvacGreeFan fan) {
@@ -162,8 +178,10 @@ void hvac_gree_set_swing(HvacGreePacket packet, bool on) {
 
     if(on) {
         packet[0] |= 0x40;
+        packet[4] = 0x01;
     } else {
         packet[0] &= ~0x40;
+        packet[4] = 0x00;
     }
 }
 
@@ -182,36 +200,47 @@ void hvac_gree_set_clean(HvacGreePacket packet, bool on) {
     UNUSED(on);
 }
 
+static void hvac_gree_send_bits(uint32_t* timings, size_t* idx, const uint8_t* data, size_t byte_count) {
+    for(size_t byte_idx = 0; byte_idx < byte_count; byte_idx++) {
+        uint8_t byte = data[byte_idx];
+        for(uint8_t bit = 0; bit < 8; bit++) {
+            timings[(*idx)++] = HVAC_GREE_BIT_MARK;
+            if(byte & (1 << bit)) {
+                timings[(*idx)++] = HVAC_GREE_ONE_SPACE;
+            } else {
+                timings[(*idx)++] = HVAC_GREE_ZERO_SPACE;
+            }
+        }
+    }
+}
+
 static void hvac_gree_send_raw(const HvacGreePacket packet) {
+    /*
+     * GREE AC IR signal structure (verified from code.ir):
+     * Frame 1: Header + 4 bytes + End mark + 20ms gap
+     * Frame 2: 4 bytes (no header!) + End mark + 40ms gap
+     * 
+     * This is sent twice (repeat), with the second pair separated by timing
+     */
     size_t timings_len = HVAC_GREE_TRANSMIT_TIMINGS_PER_FRAME * 2;
     uint32_t* timings = malloc(sizeof(uint32_t) * timings_len);
     furi_assert(timings);
 
     size_t idx = 0;
 
-    for(int frame = 0; frame < 2; frame++) {
+    // Send two identical transmissions (repeat)
+    for(int repeat = 0; repeat < 2; repeat++) {
+        // Frame 1: Header + first 4 bytes + End mark + 20ms gap
         timings[idx++] = HVAC_GREE_HDR_MARK;
         timings[idx++] = HVAC_GREE_HDR_SPACE;
-
-        for(uint8_t byte_idx = 0; byte_idx < HVAC_GREE_PACKET_SIZE; byte_idx++) {
-            uint8_t byte = packet[byte_idx];
-            for(uint8_t bit = 0; bit < 8; bit++) {
-                timings[idx++] = HVAC_GREE_BIT_MARK;
-                if(byte & (1 << bit)) {
-                    timings[idx++] = HVAC_GREE_ONE_SPACE;
-                } else {
-                    timings[idx++] = HVAC_GREE_ZERO_SPACE;
-                }
-            }
-        }
-
+        hvac_gree_send_bits(timings, &idx, packet, 4);
         timings[idx++] = HVAC_GREE_END_MARK;
+        timings[idx++] = HVAC_GREE_FRAME_GAP;
 
-        if(frame == 0) {
-            timings[idx++] = HVAC_GREE_FRAME_GAP;
-        } else {
-            timings[idx++] = HVAC_GREE_REPEAT_GAP;
-        }
+        // Frame 2: next 4 bytes (NO header) + End mark + 40ms gap
+        hvac_gree_send_bits(timings, &idx, packet + 4, 4);
+        timings[idx++] = HVAC_GREE_END_MARK;
+        timings[idx++] = HVAC_GREE_REPEAT_GAP;
     }
 
     infrared_send_raw_ext(
