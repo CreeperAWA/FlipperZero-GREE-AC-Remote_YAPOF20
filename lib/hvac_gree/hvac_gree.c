@@ -241,19 +241,93 @@ static void hvac_gree_send_raw(const HvacGreePacket packet) {
     furi_assert(timings);
 
     size_t idx = 0;
+    uint8_t mode_base = packet[0] & 0x0F;
+    uint8_t fan_bits = packet[0] & 0x30;
 
     // Send two identical transmissions (repeat)
     for(int repeat = 0; repeat < 2; repeat++) {
-        // Frame 1: Header + first 4 bytes + 3 padding bits + End mark + 20ms gap
+        // Frame 1: Header + 4 bytes + 3 padding bits + End mark + 20ms gap
         timings[idx++] = HVAC_GREE_HDR_MARK;
         timings[idx++] = HVAC_GREE_HDR_SPACE;
-        hvac_gree_send_bits(timings, &idx, packet, 4);
+        
+        if(repeat == 1) {
+            uint8_t modified_frame1[4];
+            for(int i = 0; i < 4; i++) {
+                modified_frame1[i] = packet[i];
+            }
+            
+            // Byte 3: set bit 5 (0x20) in second transmission
+            modified_frame1[3] |= 0x20;
+
+            hvac_gree_send_bits(timings, &idx, modified_frame1, 4);
+        } else {
+            hvac_gree_send_bits(timings, &idx, packet, 4);
+        }
+        
         hvac_gree_send_padding_bits(timings, &idx);
         timings[idx++] = HVAC_GREE_END_MARK;
         timings[idx++] = HVAC_GREE_FRAME_GAP;
 
         // Frame 2: next 4 bytes (NO header) + End mark + 40ms gap (except for last repeat)
-        hvac_gree_send_bits(timings, &idx, packet + 4, 4);
+        if(repeat == 1) {
+            uint8_t modified_frame2[4];
+            for(int i = 0; i < 4; i++) {
+                modified_frame2[i] = packet[4 + i];
+            }
+            
+            // Byte 0: clear swing bit
+            modified_frame2[0] &= ~0x01;
+            
+            // Byte 1: clear bit 6 (0x40)
+            modified_frame2[1] &= ~0x40;
+            
+            // Byte 2: set bit 5 if fan is not auto (fan 2 or 3)
+            if(fan_bits != 0x00) {
+                modified_frame2[2] |= 0x20;
+            }
+            
+            // Byte 3: depends on mode, fan speed, and temperature (bit5)
+            uint8_t byte3 = packet[7];
+            uint8_t clear_mask;
+            uint8_t set_bits = 0x00;
+            if(mode_base == 0x0C) { // Heat mode
+                if(fan_bits == 0x00) { // Auto fan
+                    clear_mask = 0x48; // Clear bits 3 and 6
+                } else { // Non-auto fan
+                    if(byte3 & 0x20) { // bit5 set (higher temp)
+                        clear_mask = 0x28; // Clear bits 3 and 5
+                        set_bits = 0x00;
+                    } else { // bit5 not set (lower temp)
+                        clear_mask = 0x48; // Clear bits 3 and 6
+                        set_bits = 0x20; // Set bit 5
+                    }
+                }
+            } else if(mode_base == 0x09) { // Cool/Dry/Fan mode
+                if(fan_bits == 0x00) { // Auto fan
+                    clear_mask = 0x80; // Clear bit 7
+                    set_bits = 0x40; // Set bit 6
+                } else { // Non-auto fan
+                    if(byte3 & 0x20) { // bit5 set (higher temp)
+                        clear_mask = 0x20; // Clear bit 5
+                    } else { // bit5 not set (lower temp)
+                        clear_mask = 0x80; // Clear bit 7
+                        set_bits = 0x60; // Set bits 5 and 6
+                    }
+                }
+            } else { // Auto mode or Power off
+                if(fan_bits == 0x00) { // Auto fan
+                    clear_mask = 0x40; // Clear bit 6
+                } else { // Non-auto fan
+                    clear_mask = 0x20; // Clear bit 5
+                }
+            }
+            modified_frame2[3] = (byte3 & ~clear_mask) | set_bits;
+            
+            hvac_gree_send_bits(timings, &idx, modified_frame2, 4);
+        } else {
+            hvac_gree_send_bits(timings, &idx, packet + 4, 4);
+        }
+        
         timings[idx++] = HVAC_GREE_END_MARK;
         
         // Only add repeat gap if this is not the last repeat
