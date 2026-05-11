@@ -8,6 +8,10 @@
  *   Byte 1: Temperature
  *   Byte 2: 0x20 (constant)
  *   Byte 3: 0x50 (constant)
+ *   Byte 4: Swing indicator (0x00=off, 0x01=on)
+ *   Byte 5: 0x40 (constant)
+ *   Byte 6: 0x00 (constant, modified for fan in repeat 2)
+ *   Byte 7: Checksum (depends on mode and temperature)
  *
  * Byte 0 layout:
  *   Bits 0-3: Base mode value (Cool/Dry/Fan=0x09, Heat=0x0C, Auto=0x08)
@@ -24,6 +28,12 @@
  *   Other: Temperature value = (temp - 16)
  *     Both Heating and Cooling use the same encoding: (temp - 16)
  *     Example: 20C -> 0x04, 18C -> 0x02
+ *
+ * Byte 7 (Checksum) calculation:
+ *   Cool/Dry/Fan: byte7 = (temp * 0x10 + 0x70) & 0xFF
+ *   Heat: byte7 = (temp * 0x10 + 0xA8) & 0xFF
+ *   Auto: byte7 = 0xF0
+ *   PowerOff: byte7 = 0x70
  *
  * Power on/off:
  *   Power ON: The packet with mode/temp/fan settings IS the power-on command
@@ -82,17 +92,18 @@ void hvac_gree_free_packet(HvacGreePacket packet) {
     free(packet);
 }
 
+static void gree_recalculate_checksum(HvacGreePacket packet);
+
 void hvac_gree_set_power(HvacGreePacket packet, bool on) {
     furi_assert(packet);
 
     if(on) {
-        // Verified against captured data: power-on commands do NOT set bit 4
-        // The packet with mode/temp/fan settings IS the power-on command
-        // No additional power bit needed
     } else {
         packet[0] &= ~0x0F;
         packet[1] = 0x09;
     }
+    
+    gree_recalculate_checksum(packet);
 }
 
 void hvac_gree_set_mode(HvacGreePacket packet, HvacGreeMode mode) {
@@ -105,20 +116,55 @@ void hvac_gree_set_mode(HvacGreePacket packet, HvacGreeMode mode) {
 
     packet[0] = base | fan | swing;
     packet[1] = current_temp;
+    
+    gree_recalculate_checksum(packet);
 }
 
 static uint8_t gree_encode_byte7(HvacGreeMode mode, HvacGreeTemperature temp) {
     switch(mode) {
     case HvacGreeModeHeat:
-        return 0xC8 + (temp - 18) * 0x10;
+        return (uint8_t)((temp * 0x10 + 0xA8) & 0xFF);
     case HvacGreeModeCool:
     case HvacGreeModeDry:
     case HvacGreeModeFan:
-        return 0x90 + (temp - 18) * 0x10;
+        return (uint8_t)((temp * 0x10 + 0x70) & 0xFF);
     case HvacGreeModeAuto:
         return 0xF0;
     default:
-        return 0x70;
+        return 0x00;
+    }
+}
+
+static HvacGreeMode gree_decode_mode_from_packet(uint8_t byte0) {
+    uint8_t base = byte0 & 0x0F;
+    
+    if(base == 0x0C) {
+        return HvacGreeModeHeat;
+    } else if(base == 0x08) {
+        return HvacGreeModeAuto;
+    } else {
+        return HvacGreeModeCool;
+    }
+}
+
+static HvacGreeTemperature gree_decode_temp_from_packet(uint8_t byte0, uint8_t byte1) {
+    HvacGreeMode mode = gree_decode_mode_from_packet(byte0);
+    
+    if(mode == HvacGreeModeAuto || mode == HvacGreeModeFan) {
+        return HVAC_GREE_TEMPERATURE_DEFAULT;
+    }
+    
+    return (HvacGreeTemperature)(byte1 + 16);
+}
+
+static void gree_recalculate_checksum(HvacGreePacket packet) {
+    HvacGreeMode mode = gree_decode_mode_from_packet(packet[0]);
+    HvacGreeTemperature temp = gree_decode_temp_from_packet(packet[0], packet[1]);
+    
+    if((packet[0] & 0x0F) == 0x00 && packet[1] == 0x09) {
+        packet[7] = 0x70;
+    } else {
+        packet[7] = gree_encode_byte7(mode, temp);
     }
 }
 
@@ -139,7 +185,7 @@ void hvac_gree_set_temperature(HvacGreePacket packet, HvacGreeTemperature temper
     }
 
     packet[1] = gree_encode_temperature(mode_enum, temperature);
-    packet[7] = gree_encode_byte7(mode_enum, temperature);
+    gree_recalculate_checksum(packet);
 }
 
 void hvac_gree_set_fan(HvacGreePacket packet, HvacGreeFan fan) {
@@ -241,7 +287,7 @@ static void hvac_gree_send_raw(const HvacGreePacket packet) {
     furi_assert(timings);
 
     size_t idx = 0;
-    uint8_t mode_base = packet[0] & 0x0F;
+    HvacGreeMode mode = gree_decode_mode_from_packet(packet[0]);
     uint8_t fan_bits = packet[0] & 0x30;
 
     // Send two identical transmissions (repeat)
@@ -286,42 +332,34 @@ static void hvac_gree_send_raw(const HvacGreePacket packet) {
                 modified_frame2[2] |= 0x20;
             }
             
-            // Byte 3: depends on mode, fan speed, and temperature (bit5)
-            uint8_t byte3 = packet[7];
-            uint8_t clear_mask;
-            uint8_t set_bits = 0x00;
-            if(mode_base == 0x0C) { // Heat mode
-                if(fan_bits == 0x00) { // Auto fan
-                    clear_mask = 0x48; // Clear bits 3 and 6
-                } else { // Non-auto fan
-                    if(byte3 & 0x20) { // bit5 set (higher temp)
-                        clear_mask = 0x28; // Clear bits 3 and 5
-                        set_bits = 0x00;
-                    } else { // bit5 not set (lower temp)
-                        clear_mask = 0x48; // Clear bits 3 and 6
-                        set_bits = 0x20; // Set bit 5
-                    }
+            // Byte 3 (checksum): modify for repeat 2 based on fan speed
+            // Repeat 1: checksum = temp * 0x10 + 0x70 (cool/dry/fan)
+            //                          temp * 0x10 + 0xA8 (heat)
+            //                          0xF0 (auto)
+            // Repeat 2: checksum differs based on fan speed:
+            //   Non-auto fan (1/2/3): R2 checksum = R1 checksum - 0x20 (cool) or -0x28 (heat)
+            //   Auto fan: R2 checksum = R1 checksum - 0x40 (cool) or -0x48 (heat)
+            if(mode == HvacGreeModeHeat) {
+                if(fan_bits != 0x00) {
+                    modified_frame2[3] = (packet[7] - 0x28) & 0xFF;  // Non-auto: 0xA8 - 0x28 = 0x80
+                } else {
+                    modified_frame2[3] = (packet[7] - 0x48) & 0xFF;  // Auto: 0xA8 - 0x48 = 0x60
                 }
-            } else if(mode_base == 0x09) { // Cool/Dry/Fan mode
-                if(fan_bits == 0x00) { // Auto fan
-                    clear_mask = 0x80; // Clear bit 7
-                    set_bits = 0x40; // Set bit 6
-                } else { // Non-auto fan
-                    if(byte3 & 0x20) { // bit5 set (higher temp)
-                        clear_mask = 0x20; // Clear bit 5
-                    } else { // bit5 not set (lower temp)
-                        clear_mask = 0x80; // Clear bit 7
-                        set_bits = 0x60; // Set bits 5 and 6
-                    }
+            } else if(mode == HvacGreeModeCool || mode == HvacGreeModeDry || mode == HvacGreeModeFan) {
+                if(fan_bits != 0x00) {
+                    modified_frame2[3] = (packet[7] - 0x20) & 0xFF;  // Non-auto: 0x70 - 0x20 = 0x50
+                } else {
+                    modified_frame2[3] = (packet[7] - 0x40) & 0xFF;  // Auto: 0x70 - 0x40 = 0x30
                 }
-            } else { // Auto mode or Power off
-                if(fan_bits == 0x00) { // Auto fan
-                    clear_mask = 0x40; // Clear bit 6
-                } else { // Non-auto fan
-                    clear_mask = 0x20; // Clear bit 5
+            } else if(mode == HvacGreeModeAuto) {
+                if(fan_bits != 0x00) {
+                    modified_frame2[3] = 0xD0;  // Non-auto: 0xF0 - 0x20
+                } else {
+                    modified_frame2[3] = 0xB0;  // Auto: 0xF0 - 0x40
                 }
+            } else {
+                modified_frame2[3] = packet[7];  // Fallback
             }
-            modified_frame2[3] = (byte3 & ~clear_mask) | set_bits;
             
             hvac_gree_send_bits(timings, &idx, modified_frame2, 4);
         } else {
