@@ -232,8 +232,13 @@ void hvac_gree_set_swing(HvacGreePacket packet, bool on) {
 }
 
 void hvac_gree_set_light(HvacGreePacket packet, bool on) {
-    UNUSED(packet);
-    UNUSED(on);
+    furi_assert(packet);
+
+    if(on) {
+        packet[2] |= 0x20;
+    } else {
+        packet[2] &= ~0x20;
+    }
 }
 
 void hvac_gree_set_turbo(HvacGreePacket packet, bool on) {

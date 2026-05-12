@@ -24,6 +24,7 @@ typedef struct {
     uint32_t temperature;
     uint32_t fan;
     uint32_t swing;
+    uint32_t led;
 } ACRemoteAppSettings;
 
 struct AC_RemoteApp {

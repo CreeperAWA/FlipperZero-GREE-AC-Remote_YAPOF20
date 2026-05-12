@@ -38,6 +38,11 @@ const Icon* swing[2][2] = {
     [1] = {&I_swing_19x20, &I_swing_hover_19x20},
 };
 
+const Icon* led[2][2] = {
+    [0] = {&I_led_19x11, &I_led_hover_19x11},
+    [1] = {&I_led_19x11, &I_led_hover_19x11},
+};
+
 char buffer[4] = {0};
 
 bool ac_remote_load_settings(ACRemoteAppSettings* app_state) {
@@ -62,6 +67,8 @@ bool ac_remote_load_settings(ACRemoteAppSettings* app_state) {
         if(temp_state.power > 1) break;
         if(!flipper_format_read_uint32(ff, "Swing", &temp_state.swing, 1)) break;
         if(temp_state.swing > 1) break;
+        if(!flipper_format_read_uint32(ff, "Led", &temp_state.led, 1)) break;
+        if(temp_state.led > 1) break;
         *app_state = temp_state;
         success = true;
     } while(false);
@@ -85,6 +92,7 @@ bool ac_remote_store_settings(ACRemoteAppSettings* app_state) {
         if(!flipper_format_write_uint32(ff, "Fan", &app_state->fan, 1)) break;
         if(!flipper_format_write_uint32(ff, "Power", &app_state->power, 1)) break;
         if(!flipper_format_write_uint32(ff, "Swing", &app_state->swing, 1)) break;
+        if(!flipper_format_write_uint32(ff, "Led", &app_state->led, 1)) break;
         success = true;
     } while(false);
     furi_record_close(RECORD_STORAGE);
@@ -141,6 +149,7 @@ void ac_remote_send_settings(const ACRemoteAppSettings* settings) {
     hvac_gree_set_temperature(packet, settings->temperature);
     hvac_gree_set_fan(packet, settings->fan);
     hvac_gree_set_swing(packet, settings->swing);
+    hvac_gree_set_light(packet, settings->led);
 
 send:
     hvac_gree_send(packet);
@@ -157,6 +166,7 @@ void ac_remote_scene_gree_on_enter(void* context) {
     ac_remote->app_state.fan = HvacGreeFanAuto;
     ac_remote->app_state.temperature = HVAC_GREE_TEMPERATURE_DEFAULT;
     ac_remote->app_state.swing = 0;
+    ac_remote->app_state.led = 1; // LED ON by default
 
     ac_remote_load_settings(&ac_remote->app_state);
 
@@ -267,8 +277,8 @@ void ac_remote_scene_gree_on_enter(void* context) {
         3,
         22,
         115,
-        &I_led_19x11,
-        &I_led_hover_19x11,
+        led[ac_remote->app_state.led][0],
+        led[ac_remote->app_state.led][1],
         ac_remote_scene_universal_common_item_callback,
         NULL,
         context);
@@ -414,6 +424,25 @@ bool ac_remote_scene_gree_on_event(void* context, SceneManagerEvent event) {
             break;
 
         case button_turbo:
+            if(!ac_remote->app_state.power) {
+                return true;
+            }
+            break;
+
+        case button_led:
+            if(!ac_remote->app_state.power) {
+                return true;
+            }
+
+            ac_remote->app_state.led = ac_remote->app_state.led ? 0 : 1;
+            ac_remote_panel_item_set_icons(
+                ac_remote_panel,
+                button_led,
+                led[ac_remote->app_state.led][0],
+                led[ac_remote->app_state.led][1]);
+            break;
+
+        case button_clean:
             if(!ac_remote->app_state.power) {
                 return true;
             }

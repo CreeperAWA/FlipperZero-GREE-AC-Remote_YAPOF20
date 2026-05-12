@@ -52,6 +52,10 @@ typedef uint8_t HvacGreeTemperature;
  * This entire sequence is sent twice (repeat).
  * The second repeat does NOT end with a repeat gap.
  * Total: 279 timings (140 for first repeat + 139 for second repeat)
+ * 
+ * Byte 2 controls LED display:
+ *   Bit 5 (0x20): LED ON when set, OFF when cleared
+ *   Default: LED ON (0x20)
  */
 
 /* Single repeat structure:
